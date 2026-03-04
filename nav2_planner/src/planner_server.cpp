@@ -161,8 +161,6 @@ PlannerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
     it->second->activate();
   }
 
-  is_path_valid_service_->on_activate();
-
   // create bond connection
   createBond();
 
@@ -192,8 +190,6 @@ PlannerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
   for (it = planners_.begin(); it != planners_.end(); ++it) {
     it->second->deactivate();
   }
-
-  is_path_valid_service_->on_deactivate();
 
   // destroy bond connection
   destroyBond();

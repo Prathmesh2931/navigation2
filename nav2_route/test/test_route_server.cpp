@@ -29,6 +29,7 @@
 #include "nav2_route/route_tracker.hpp"
 #include "nav2_route/route_server.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include "tf2_ros/static_transform_broadcaster.hpp"
 
 class RclCppFixture
 {
@@ -87,35 +88,37 @@ public:
 
   void lifecycleCycle()
   {
-    on_configure(rclcpp_lifecycle::State());
-    on_activate(rclcpp_lifecycle::State());
-    on_deactivate(rclcpp_lifecycle::State());
-    on_cleanup(rclcpp_lifecycle::State());
-    on_shutdown(rclcpp_lifecycle::State());
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CLEANUP);
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_UNCONFIGURED_SHUTDOWN);
   }
 
   void startup()
   {
-    on_configure(rclcpp_lifecycle::State());
-    on_activate(rclcpp_lifecycle::State());
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
   }
 
   void configure()
   {
-    on_configure(rclcpp_lifecycle::State());
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
   }
 
   void activate()
   {
-    on_activate(rclcpp_lifecycle::State());
+    trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
   }
 
   void shutdown()
   {
-    if (this->get_current_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED) {
-      on_deactivate(rclcpp_lifecycle::State());
+    if (get_current_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+      trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
     }
-    on_cleanup(rclcpp_lifecycle::State());
+    if (get_current_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+      trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CLEANUP);
+    }
   }
 
   void testPrint(
@@ -151,7 +154,10 @@ public:
 
   void useErrorCodePlanner()
   {
-    route_planner_ = std::make_shared<RoutePlannerErrorTester>();
+    auto error_planner = std::make_shared<RoutePlannerErrorTester>();
+    error_planner->configure(shared_from_this(), tf_, costmap_subscriber_);
+    error_planner->activate();
+    route_planner_ = error_planner;
   }
 };
 
@@ -286,6 +292,15 @@ TEST(RouteServerTest, test_complete_action_api)
   rclcpp::NodeOptions options;
   auto server = std::make_shared<RouteServerWrapper>(options);
   server->declare_parameter("graph_filepath", rclcpp::ParameterValue(real_file));
+
+  auto tf_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(server);
+  geometry_msgs::msg::TransformStamped t;
+  t.header.stamp = server->now();
+  t.header.frame_id = "map";
+  t.child_frame_id = "base_link";
+  t.transform.rotation.w = 1.0;
+  tf_broadcaster->sendTransform(t);
+
   auto node_thread = std::make_unique<nav2::NodeThread>(server);
   server->startup();
 

@@ -220,10 +220,18 @@ public:
     typename nav2::ServiceServer<ServiceT>::CallbackType cb,
     rclcpp::CallbackGroup::SharedPtr callback_group = nullptr)
   {
-    auto srv = nav2::interfaces::create_service<ServiceT>(
-      shared_from_this(), service_name, std::move(cb), callback_group);
+    auto srv = std::make_shared<nav2::ServiceServer<ServiceT>>(
+    service_name, shared_from_this(), std::move(cb), callback_group);
 
-    this->add_managed_entity(srv);
+     managed_srv_entities_.push_back(
+      std::weak_ptr<rclcpp_lifecycle::ManagedEntityInterface>(
+        std::shared_ptr<rclcpp_lifecycle::ManagedEntityInterface>(
+          srv, static_cast<rclcpp_lifecycle::ManagedEntityInterface *>(srv.get()))));
+
+    // If already active (created after activation), activate immediately
+    if (get_current_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+      srv->on_activate();
+    }
 
     return srv;
   }
@@ -435,6 +443,26 @@ protected:
     }
   }
 
+   nav2::CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override
+  {
+    for (auto & weak_entity : managed_srv_entities_) {
+      if (auto entity = weak_entity.lock()) {
+        entity->on_activate();
+      }
+    }
+    return rclcpp_lifecycle::LifecycleNode::on_activate(state);
+  }
+
+  nav2::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override
+  {
+    for (auto & weak_entity : managed_srv_entities_) {
+      if (auto entity = weak_entity.lock()) {
+        entity->on_deactivate();
+      }
+    }
+    return rclcpp_lifecycle::LifecycleNode::on_deactivate(state);
+  }
+
   // Connection to tell that server is still up
   std::unique_ptr<rclcpp::PreShutdownCallbackHandle> rcl_preshutdown_cb_handle_{nullptr};
   std::shared_ptr<bond::Bond> bond_{nullptr};
@@ -458,6 +486,8 @@ private:
     // Default to true if not specified
     return true;
   }
+  // In private section:
+  std::vector<std::weak_ptr<rclcpp_lifecycle::ManagedEntityInterface>> managed_srv_entities_;
 };
 
 }  // namespace nav2
